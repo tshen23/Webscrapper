@@ -1,16 +1,22 @@
 package net.neological;
 
-import net.neological.webscraping.specific.FredWebScraper;
+import net.neological.gui.WebScraperGUI;
 
-import java.io.IOException;
+import javax.swing.*;
 
 public class Main {
-    public static void main(String[] args) throws IOException {
-        FredWebScraper fredWebscraper = new FredWebScraper(
-                "FRED",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64",
-                15_000);
+    public static void main(String[] args) {
+        // Set look and feel to system default
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
-        fredWebscraper.scrape("https://fred.stlouisfed.org/searchresults/?st=Wayne%20County");
+        // Launch the GUI
+        SwingUtilities.invokeLater(() -> {
+            WebScraperGUI gui = new WebScraperGUI();
+            gui.setVisible(true);
+        });
     }
 }

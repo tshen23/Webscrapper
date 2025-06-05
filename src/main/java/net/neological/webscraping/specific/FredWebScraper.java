@@ -1,6 +1,7 @@
 package net.neological.webscraping.specific;
 
 import io.github.bonigarcia.wdm.WebDriverManager;
+import lombok.Setter;
 import net.neological.webscraping.WebScraper;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -14,10 +15,23 @@ import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
+import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 
 public class FredWebScraper extends WebScraper {
+
+    @Setter
+    private String downloadFolder;
+
     /**
      * Constructor.
      *
@@ -27,6 +41,7 @@ public class FredWebScraper extends WebScraper {
      */
     public FredWebScraper(String name, String userAgent, int timeoutMillis) {
         super(name, userAgent, timeoutMillis);
+        this.downloadFolder = System.getProperty("user.home") + File.separator + "Downloads";
     }
 
     @Override
@@ -34,6 +49,7 @@ public class FredWebScraper extends WebScraper {
         Elements seriesLinks = document.select("a[href^=/series/]");
 
         FredWebScraper.Series seriesScraper = new Series(null, userAgent, timeoutMillis);
+        seriesScraper.setDownloadFolder(downloadFolder);
 
         for (Element link : seriesLinks) {
             String fullUrl = link.absUrl("href");
@@ -50,6 +66,9 @@ public class FredWebScraper extends WebScraper {
 
     private static class Series extends WebScraper {
 
+        @Setter
+        private String downloadFolder;
+
         /**
          * Constructor.
          *
@@ -59,6 +78,7 @@ public class FredWebScraper extends WebScraper {
          */
         protected Series(String name, String userAgent, int timeoutMillis) {
             super(name, userAgent, timeoutMillis);
+            this.downloadFolder = System.getProperty("user.home") + File.separator + "Downloads";
         }
 
         @Override
@@ -108,6 +128,49 @@ public class FredWebScraper extends WebScraper {
             }
 
             System.out.println("Downloading CSV from: " + csvUrl);
+
+            try {
+                URI uri = URI.create(csvUrl);
+                URL url = uri.toURL();
+
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(10_000); // 10 seconds
+                connection.setReadTimeout(10_000);
+
+                int statusCode = connection.getResponseCode();
+                if (statusCode != HttpURLConnection.HTTP_OK) {
+                    throw new IOException("Failed to download file: HTTP status code " + statusCode);
+                }
+
+                Path dir = Paths.get(downloadFolder);
+                if (Files.exists(dir) && !Files.isDirectory(dir)) {
+                    connection.disconnect();
+                    throw new IOException("The specified path exists and is not a directory: " + downloadFolder);
+                }
+                Files.createDirectories(dir);
+
+                // create filename by link name
+                String fileName = document.baseUri().substring(document.baseUri().lastIndexOf('/') + 1);
+                if (fileName.isEmpty()) {
+                    connection.disconnect();
+                    throw new IOException("Cannot infer filename from URL: " + document.baseUri());
+                }
+                fileName += ".csv";
+
+                // Destination file within the folder
+                Path destFile = dir.resolve(fileName);
+
+                // Stream data from the URL to the destination file
+                try (InputStream in = connection.getInputStream()) {
+                    Files.copy(in, destFile, StandardCopyOption.REPLACE_EXISTING);
+                } finally {
+                    connection.disconnect();
+                }
+
+            } catch (Exception e) {
+                System.err.println("Error downloading CSV: " + e.getMessage());
+            }
         }
 
         @Override
