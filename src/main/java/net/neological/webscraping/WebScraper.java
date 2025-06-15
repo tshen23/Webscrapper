@@ -17,20 +17,16 @@ import java.time.Duration;
  * for parsing. Subclasses must implement parse(...) and isValid(...).
  */
 public abstract class WebScraper {
-    @Getter
-    protected final String name;
     protected final String userAgent;
     protected final int timeoutMillis;
 
     /**
      * Constructor.
      *
-     * @param name          the name of the scraper (for logging or identification).
      * @param userAgent     the User-Agent header to present when fetching pages.
      * @param timeoutMillis the timeout (in milliseconds) for page loading in Selenium.
      */
-    protected WebScraper(String name, String userAgent, int timeoutMillis) {
-        this.name = name;
+    protected WebScraper(String userAgent, int timeoutMillis) {
         this.userAgent = userAgent;
         this.timeoutMillis = timeoutMillis;
     }

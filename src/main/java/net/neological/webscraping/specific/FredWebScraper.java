@@ -2,12 +2,14 @@ package net.neological.webscraping.specific;
 
 import io.github.bonigarcia.wdm.WebDriverManager;
 import lombok.Setter;
+import net.neological.webscraping.FileDownloader;
 import net.neological.webscraping.WebScraper;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.openqa.selenium.By;
+import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
@@ -17,14 +19,9 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 
 public class FredWebScraper extends WebScraper {
@@ -35,12 +32,11 @@ public class FredWebScraper extends WebScraper {
     /**
      * Constructor.
      *
-     * @param name          the name of the web scraper
      * @param userAgent     the User-Agent header to present when fetching pages.
      * @param timeoutMillis the timeout (in milliseconds) for the HTTP connection and read.
      */
-    public FredWebScraper(String name, String userAgent, int timeoutMillis) {
-        super(name, userAgent, timeoutMillis);
+    public FredWebScraper(String userAgent, int timeoutMillis) {
+        super(userAgent, timeoutMillis);
         this.downloadFolder = System.getProperty("user.home") + File.separator + "Downloads";
     }
 
@@ -48,7 +44,7 @@ public class FredWebScraper extends WebScraper {
     protected void parse(Document document) throws IOException {
         Elements seriesLinks = document.select("a[href^=/series/]");
 
-        FredWebScraper.Series seriesScraper = new Series(null, userAgent, timeoutMillis);
+        FredWebScraper.Series seriesScraper = new Series(userAgent, timeoutMillis);
         seriesScraper.setDownloadFolder(downloadFolder);
 
         for (Element link : seriesLinks) {
@@ -64,7 +60,7 @@ public class FredWebScraper extends WebScraper {
                 && url.startsWith("https://fred.stlouisfed.org/searchresults/");
     }
 
-    private static class Series extends WebScraper {
+    private static class Series extends WebScraper implements FileDownloader {
 
         @Setter
         private String downloadFolder;
@@ -72,12 +68,11 @@ public class FredWebScraper extends WebScraper {
         /**
          * Constructor.
          *
-         * @param name          the name of the web scraper
          * @param userAgent     the User-Agent header to present when fetching pages.
          * @param timeoutMillis the timeout (in milliseconds) for the HTTP connection and read.
          */
-        protected Series(String name, String userAgent, int timeoutMillis) {
-            super(name, userAgent, timeoutMillis);
+        protected Series(String userAgent, int timeoutMillis) {
+            super(userAgent, timeoutMillis);
             this.downloadFolder = System.getProperty("user.home") + File.separator + "Downloads";
         }
 
@@ -89,7 +84,8 @@ public class FredWebScraper extends WebScraper {
             options.addArguments("--headless");
             options.addArguments("--disable-gpu");
             options.addArguments("--no-sandbox");
-            options.addArguments("--blink-settings=imagesEnabled=false"); // turn off image loading
+            options.addArguments("--disable-dev-shm-usage");
+            options.addArguments("--blink-settings=imagesEnabled=false");
             options.addArguments("--user-agent=" + userAgent);
 
             WebDriver driver = new ChromeDriver(options);
@@ -98,12 +94,31 @@ public class FredWebScraper extends WebScraper {
                 driver.get(url);
 
                 WebDriverWait wait = new WebDriverWait(driver, Duration.ofMillis(timeoutMillis));
-                WebElement button = wait.until(
-                        ExpectedConditions.elementToBeClickable(By.id("download-button"))
-                );
-                button.click();
 
-                Thread.sleep(2_000);
+                // Wait for the page to load completely
+                wait.until(ExpectedConditions.presenceOfElementLocated(By.id("download-button")));
+
+                // Try multiple strategies to click the button
+                WebElement button = null;
+                try {
+                    // First try: wait for element to be clickable
+                    button = wait.until(ExpectedConditions.elementToBeClickable(By.id("download-button")));
+                    button.click();
+                } catch (Exception e1) {
+                    try {
+                        // Second try: use JavaScript click
+                        button = driver.findElement(By.id("download-button"));
+                        ((JavascriptExecutor) driver).executeScript("arguments[0].click();", button);
+                    } catch (Exception e2) {
+                        // Third try: scroll to element and click
+                        button = driver.findElement(By.id("download-button"));
+                        ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView(true);", button);
+                        Thread.sleep(1000);
+                        ((JavascriptExecutor) driver).executeScript("arguments[0].click();", button);
+                    }
+                }
+
+                Thread.sleep(3_000); // Wait longer for download options to appear
                 String updatedHtml = driver.getPageSource();
                 return Jsoup.parse(updatedHtml, driver.getCurrentUrl());
             } catch (Exception e) {
@@ -130,43 +145,19 @@ public class FredWebScraper extends WebScraper {
             System.out.println("Downloading CSV from: " + csvUrl);
 
             try {
-                URI uri = URI.create(csvUrl);
-                URL url = uri.toURL();
-
-                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-                connection.setRequestMethod("GET");
-                connection.setConnectTimeout(10_000); // 10 seconds
-                connection.setReadTimeout(10_000);
-
-                int statusCode = connection.getResponseCode();
-                if (statusCode != HttpURLConnection.HTTP_OK) {
-                    throw new IOException("Failed to download file: HTTP status code " + statusCode);
-                }
-
-                Path dir = Paths.get(downloadFolder);
-                if (Files.exists(dir) && !Files.isDirectory(dir)) {
-                    connection.disconnect();
-                    throw new IOException("The specified path exists and is not a directory: " + downloadFolder);
-                }
-                Files.createDirectories(dir);
-
-                // create filename by link name
+                // Create filename from the series URL
                 String fileName = document.baseUri().substring(document.baseUri().lastIndexOf('/') + 1);
                 if (fileName.isEmpty()) {
-                    connection.disconnect();
                     throw new IOException("Cannot infer filename from URL: " + document.baseUri());
                 }
                 fileName += ".csv";
 
-                // Destination file within the folder
-                Path destFile = dir.resolve(fileName);
+                // Create full file path
+                Path destFile = Paths.get(downloadFolder, fileName);
+                String filePath = destFile.toString();
 
-                // Stream data from the URL to the destination file
-                try (InputStream in = connection.getInputStream()) {
-                    Files.copy(in, destFile, StandardCopyOption.REPLACE_EXISTING);
-                } finally {
-                    connection.disconnect();
-                }
+                // Use the FileDownloader interface to download the file
+                downloadFile(csvUrl, filePath);
 
             } catch (Exception e) {
                 System.err.println("Error downloading CSV: " + e.getMessage());

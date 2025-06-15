@@ -148,10 +148,9 @@ public class WebScraperGUI extends JFrame {
                     // Create scraper instance using reflection
                     Class<? extends WebScraper> scraperClass = scraperClasses.get(scraperName);
                     Constructor<? extends WebScraper> constructor = scraperClass.getConstructor(
-                            String.class, String.class, int.class);
+                            String.class, int.class);
 
                     WebScraper scraper = constructor.newInstance(
-                            scraperName,
                             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
                             15_000);
 
@@ -159,7 +158,6 @@ public class WebScraperGUI extends JFrame {
                     if (scraper instanceof FredWebScraper) {
                         ((FredWebScraper) scraper).setDownloadFolder(downloadFolder);
                     }
-
                     // Redirect System.out and System.err to the log area
                     PrintStreamRedirector.redirectSystemOut(message -> SwingUtilities.invokeLater(() -> logMessage(message)));
 
