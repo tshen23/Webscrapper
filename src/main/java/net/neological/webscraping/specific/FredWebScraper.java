@@ -24,7 +24,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 
-public class FredWebScraper extends WebScraper {
+public class FredWebScraper extends WebScraper implements FileDownloader {
 
     @Setter
     private String downloadFolder;
@@ -44,7 +44,7 @@ public class FredWebScraper extends WebScraper {
     protected void parse(Document document) throws IOException {
         Elements seriesLinks = document.select("a[href^=/series/]");
 
-        FredWebScraper.Series seriesScraper = new Series(userAgent, timeoutMillis);
+        Series seriesScraper = new Series(userAgent, timeoutMillis);
         seriesScraper.setDownloadFolder(downloadFolder);
 
         for (Element link : seriesLinks) {
@@ -60,7 +60,7 @@ public class FredWebScraper extends WebScraper {
                 && url.startsWith("https://fred.stlouisfed.org/searchresults/");
     }
 
-    private static class Series extends WebScraper implements FileDownloader {
+    private class Series extends WebScraper {
 
         @Setter
         private String downloadFolder;
